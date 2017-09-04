@@ -1,0 +1,131 @@
+#include "threadpool.h"
+
+#include<stdlib.h>
+#include<stdio.h>
+#include<string.h>
+#include<errno.h>
+#inlcude<time.h>
+
+
+void *thread_routine(void *arg)
+{
+    struct_timespace
+	printf("thread 0x%0x is starting \n",(int)pthread_self());
+  
+     threadpool_t *pool=(threadpool_t *)arg;
+	 while(1)
+	 {
+	   condition_lock(pool->ready);
+	   
+	   pool->idle++;
+	   
+	   //等待任务到来或者等待线程池销毁通知
+	   while(pool->first==NULL&&!pool->quit)
+	   {
+	       printf("thread 0x%0x is waiting \n",(int)pthread_self());
+	        condition_timewait(&pool->ready);
+			
+	   
+	   }
+	   pool->idle--;
+	   //开始工作
+	   
+	   if(pool->first!=NULL)
+	   {
+	   //取队头任务
+	     task_t *t=pool->first;
+		 pool->first=t.next;
+		 
+		 //执行任务需要一定时间，所以要先解锁，以便生产者进程添加任务，也方便其他消费者线程进入等待任务
+		  condition_unlock(&pool->ready);
+		 t->run(t->arg);
+		 free(t);
+	     condition_lock(&pool->ready);
+	   
+	   }
+	   
+	   //如果等带到线程池销毁
+	   if(pool->quit&&pool->first==NULL)
+	   {
+	      pool->counter--;
+		   condition_unlock(&pool->ready);
+		  //跳出循环之前记得解锁
+		  break;
+	   }
+	   
+	   
+	   condition_unlock(&pool->ready);
+	 
+	 
+	 
+	 }
+	 
+    printf("thread 0x%0x is exiting \n",(int)pthread_self());
+  return NULL;
+
+}
+
+void threadpool_init(threadpool_t *pool,int threads)
+{
+  condition_init(&pool->ready);
+  
+  pool->first=NULL;
+  pool->last=NULL;
+  pool->counter=0;
+  pool->idle=0;
+  pool->max_threads=threads;
+  pool->quit=0;    //销毁线程池的时候置1
+  
+
+
+ 
+}
+
+
+
+void threadpool_add_task(threadpool_t *pool,void *(*run)(void *arg),void *arg)
+{
+    task_t *newtask=(task_t*)malloc(sizeof(task_t));
+
+     newtask->run=run;
+	 newtask->arg=arg;
+	 
+	 newtask->next=NULL;
+	 //枷锁
+	 condition_lock(&pool->ready);
+	 
+	 if(pool->first==NULL)
+	 {
+	    first=newtask;
+	 }else{
+	   pool->last->next=newtask;
+	   
+	 }
+	 pool->last=newtask;
+	 
+	 //唤醒等待空闲线程
+	 if(pool->idle>0){
+	    
+		condition_signal(&pool->ready);
+	 }else if(pool->counter<pool->max_threads){
+	     //无等待线程,ze创建新的线程
+		 
+		 pthread_t tid;
+		 
+		 pthread_create(&tid,NULL,thread_routine,pool);
+	     
+		 pool->counter++;
+	 }
+	 
+	 
+	 condition_unlock(&pool->ready);
+
+}
+
+
+void threadpool_destroy(threadpool_t *pool)
+{
+
+
+
+}
